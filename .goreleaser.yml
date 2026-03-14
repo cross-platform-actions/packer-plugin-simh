@@ -1,0 +1,61 @@
+# This is an example goreleaser.yaml file with some sane defaults.
+# Make sure to check the documentation at http://goreleaser.com
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: packer-plugin-simh
+    env:
+      - CGO_ENABLED=0
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - "-s -w -X github.com/jacob-carlborg/packer-plugin-simh/version.Version={{ .Version }} -X github.com/jacob-carlborg/packer-plugin-simh/version.VersionPrerelease="
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    binary: "packer-plugin-simh_v{{ .Version }}_{{ .Env.API_VERSION }}_{{ .Os }}_{{ .Arch }}"
+
+archives:
+  - id: packer-plugin-simh
+    ids:
+      - packer-plugin-simh
+    formats:
+      - zip
+    name_template: "packer-plugin-simh_v{{ .Version }}_{{ .Env.API_VERSION }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "packer-plugin-simh_v{{ .Version }}_SHA256SUMS"
+  algorithm: sha256
+
+signs:
+  - artifacts: checksum
+    args:
+      - "--batch"
+      - "--local-user"
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - "--output"
+      - "${signature}"
+      - "--detach-sign"
+      - "${artifact}"
+
+release:
+  github:
+    owner: jacob-carlborg
+    name: packer-plugin-simh
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
