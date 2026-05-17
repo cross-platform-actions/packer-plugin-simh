@@ -57,9 +57,12 @@ func TestStepCreateCommandFile_BasicGenerated(t *testing.T) {
 		t.Error("missing header comment")
 	}
 
-	// Check console config.
-	if !strings.Contains(text, "SET CONSOLE TELNET=BUFFERED=127.0.0.1:4001") {
-		t.Error("missing console telnet config")
+	// Check console config: SIMH needs two separate SET CONSOLE TELNET= commands.
+	if !strings.Contains(text, "SET CONSOLE TELNET=127.0.0.1:4001\n") {
+		t.Error("missing console telnet host:port config")
+	}
+	if !strings.Contains(text, "SET CONSOLE TELNET=BUFFERED\n") {
+		t.Error("missing console telnet BUFFERED config")
 	}
 
 	// Check console log.
@@ -214,8 +217,8 @@ func TestStepCreateCommandFile_ExternalCommandFile(t *testing.T) {
 	content, _ := os.ReadFile(cmdPath)
 	text := string(content)
 
-	// Should contain console config.
-	if !strings.Contains(text, "SET CONSOLE TELNET=BUFFERED=") {
+	// Should contain console config (two separate SET CONSOLE TELNET= commands).
+	if !strings.Contains(text, "SET CONSOLE TELNET=") || !strings.Contains(text, "SET CONSOLE TELNET=BUFFERED") {
 		t.Error("missing console config in external command file mode")
 	}
 
