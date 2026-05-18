@@ -111,6 +111,13 @@ type Config struct {
 	// Additional raw SCP commands inserted before disk attachments.
 	SimhArgs []string `mapstructure:"simh_args"`
 
+	// Additional raw SCP commands inserted after the initial BOOT CPU and
+	// before the auto-QUIT. Each command runs after the previous BOOT
+	// returns control to SCP (i.e. on a HALT instruction when SIMHALT is in
+	// effect). Useful for re-booting after the guest's first halt/reboot
+	// without exiting the simulator.
+	PostBootCommands []string `mapstructure:"post_boot_commands"`
+
 	// Maximum time to wait for the SIMH process to exit.
 	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
 
@@ -146,6 +153,7 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, []string, error) {
 				"network_device",
 				"network_commands",
 				"simh_args",
+				"post_boot_commands",
 			},
 		},
 	}, raws...)
@@ -293,6 +301,13 @@ func (c *Config) Prepare(raws ...interface{}) ([]string, []string, error) {
 		if _, err := os.Stat(c.CommandFile); err != nil {
 			errs = packer.MultiErrorAppend(errs,
 				fmt.Errorf("command_file '%s' does not exist or is not readable: %s", c.CommandFile, err))
+		}
+		// post_boot_commands are appended after the external command_file's
+		// contents; if that file issues QUIT (or otherwise exits) first, they
+		// will never run.
+		if len(c.PostBootCommands) > 0 {
+			warnings = append(warnings,
+				"post_boot_commands are appended after your command_file contents; if that file issues QUIT (or otherwise exits) before them, they will not run.")
 		}
 	}
 

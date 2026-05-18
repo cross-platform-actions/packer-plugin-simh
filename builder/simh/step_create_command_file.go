@@ -80,6 +80,27 @@ func (s *stepCreateCommandFile) Run(ctx context.Context, state multistep.StateBa
 		}
 	}
 
+	// Section 7b — Post-boot commands.
+	//
+	// Each command runs after the preceding BOOT returns to SCP (e.g. on the
+	// guest's HALT with SIMHALT set), so post_boot_commands of e.g.
+	// ["BOOT CPU"] let the simulator re-boot after the guest reboots itself.
+	// In external command_file mode they are appended after the user's
+	// content; Prepare warns that a QUIT in that file makes them unreachable.
+	if len(config.PostBootCommands) > 0 {
+		b.WriteString("\n; Post-boot commands\n")
+		for _, cmd := range config.PostBootCommands {
+			rendered, err := interpolate.Render(cmd, &config.ctx)
+			if err != nil {
+				err := fmt.Errorf("error interpolating post_boot_commands: %s", err)
+				state.Put("error", err)
+				ui.Error(err.Error())
+				return multistep.ActionHalt
+			}
+			b.WriteString(rendered + "\n")
+		}
+	}
+
 	// Section 8 — Quit (always last)
 	b.WriteString("\n; Auto quit\n")
 	b.WriteString("QUIT\n")

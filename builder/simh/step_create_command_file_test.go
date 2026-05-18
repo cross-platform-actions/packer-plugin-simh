@@ -21,6 +21,86 @@ func testCommandFileState(config *Config) *multistep.BasicStateBag {
 	return state
 }
 
+func TestStepCreateCommandFile_PostBootCommandsGenerated(t *testing.T) {
+	dir := t.TempDir()
+	trueVal := true
+
+	config := &Config{
+		OutputDirectory:    dir,
+		VMName:             "test-vm",
+		ConsoleBindAddress: "127.0.0.1",
+		ConsoleLog:         &trueVal,
+		PostBootCommands:   []string{"BOOT CPU"},
+	}
+
+	state := testCommandFileState(config)
+	step := &stepCreateCommandFile{}
+	if action := step.Run(context.Background(), state); action != multistep.ActionContinue {
+		t.Fatalf("expected ActionContinue, got %v", action)
+	}
+
+	content, err := os.ReadFile(state.Get("command_file_path").(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+
+	// post_boot_commands must appear after the initial BOOT CPU and before
+	// the auto-QUIT.
+	firstBoot := strings.Index(text, "BOOT CPU")
+	postSection := strings.Index(text, "; Post-boot commands")
+	quit := strings.Index(text, "QUIT")
+	if firstBoot < 0 || postSection < 0 || quit < 0 {
+		t.Fatalf("missing sections: boot=%d post=%d quit=%d\n%s", firstBoot, postSection, quit, text)
+	}
+	if firstBoot >= postSection || postSection >= quit {
+		t.Errorf("expected order BOOT < post-boot < QUIT, got boot=%d post=%d quit=%d", firstBoot, postSection, quit)
+	}
+}
+
+func TestStepCreateCommandFile_PostBootCommandsWithCommandFile(t *testing.T) {
+	dir := t.TempDir()
+	trueVal := true
+
+	// External file without its own QUIT: the appended post_boot_commands
+	// (and auto-QUIT) are reachable, so they must be emitted.
+	external := filepath.Join(dir, "external.simh")
+	if err := os.WriteFile(external, []byte("ATTACH RQ0 disk.dsk\nBOOT CPU\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	config := &Config{
+		OutputDirectory:    dir,
+		VMName:             "test-vm",
+		ConsoleBindAddress: "127.0.0.1",
+		ConsoleLog:         &trueVal,
+		CommandFile:        external,
+		PostBootCommands:   []string{"BOOT CPU"},
+	}
+
+	state := testCommandFileState(config)
+	step := &stepCreateCommandFile{}
+	if action := step.Run(context.Background(), state); action != multistep.ActionContinue {
+		t.Fatalf("expected ActionContinue, got %v", action)
+	}
+
+	content, err := os.ReadFile(state.Get("command_file_path").(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+
+	// post_boot_commands are appended after the external content, before QUIT.
+	post := strings.Index(text, "; Post-boot commands")
+	quit := strings.Index(text, "QUIT")
+	if post < 0 {
+		t.Fatalf("post_boot_commands must be emitted in external command_file mode:\n%s", text)
+	}
+	if post >= quit {
+		t.Errorf("expected post-boot section before QUIT, got post=%d quit=%d", post, quit)
+	}
+}
+
 func TestStepCreateCommandFile_BasicGenerated(t *testing.T) {
 	dir := t.TempDir()
 	trueVal := true

@@ -103,6 +103,7 @@ type FlatConfig struct {
 	SkipPortForward           *bool                `mapstructure:"skip_port_forward" cty:"skip_port_forward" hcl:"skip_port_forward"`
 	HTTPIP                    *string              `mapstructure:"http_ip" cty:"http_ip" hcl:"http_ip"`
 	SimhArgs                  []string             `mapstructure:"simh_args" cty:"simh_args" hcl:"simh_args"`
+	PostBootCommands          []string             `mapstructure:"post_boot_commands" cty:"post_boot_commands" hcl:"post_boot_commands"`
 	ShutdownTimeout           *string              `mapstructure:"shutdown_timeout" cty:"shutdown_timeout" hcl:"shutdown_timeout"`
 }
 
@@ -211,6 +212,7 @@ func (*FlatConfig) HCL2Spec() map[string]hcldec.Spec {
 		"skip_port_forward":            &hcldec.AttrSpec{Name: "skip_port_forward", Type: cty.Bool, Required: false},
 		"http_ip":                      &hcldec.AttrSpec{Name: "http_ip", Type: cty.String, Required: false},
 		"simh_args":                    &hcldec.AttrSpec{Name: "simh_args", Type: cty.List(cty.String), Required: false},
+		"post_boot_commands":           &hcldec.AttrSpec{Name: "post_boot_commands", Type: cty.List(cty.String), Required: false},
 		"shutdown_timeout":             &hcldec.AttrSpec{Name: "shutdown_timeout", Type: cty.String, Required: false},
 	}
 	return s
