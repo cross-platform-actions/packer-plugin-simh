@@ -46,11 +46,16 @@ func (s *stepPrepareOutputDir) Cleanup(state multistep.StateBag) {
 
 	_, halted := state.GetOk(multistep.StateHalted)
 	_, cancelled := state.GetOk(multistep.StateCancelled)
+	failed := halted || cancelled
 
-	if (halted || cancelled) && !config.PackerDebug {
+	// Honor PACKER_SIMH_KEEP_OUTPUT=1 in addition to -debug so failures can
+	// be inspected even when running non-interactively.
+	keepForInspection := config.PackerDebug || os.Getenv("PACKER_SIMH_KEEP_OUTPUT") == "1"
+
+	if failed && keepForInspection {
+		log.Printf("[INFO] Leaving output directory for inspection: %s", config.OutputDirectory)
+	} else if failed {
 		log.Printf("[INFO] Removing output directory: %s", config.OutputDirectory)
-		os.RemoveAll(config.OutputDirectory)
-	} else if (halted || cancelled) && config.PackerDebug {
-		log.Printf("[INFO] Leaving output directory for debug inspection: %s", config.OutputDirectory)
+		_ = os.RemoveAll(config.OutputDirectory)
 	}
 }

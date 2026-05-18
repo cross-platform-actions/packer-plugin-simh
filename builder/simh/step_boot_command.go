@@ -150,6 +150,16 @@ func (s *stepBootCommand) Run(ctx context.Context, state multistep.StateBag) mul
 	}
 
 	ui.Say("Boot steps completed successfully.")
+
+	// Release the console connection now that boot_steps are finished. SIMH's
+	// telnet listener stays bound, so a follow-up tool (or the user) can
+	// connect for diagnostics during the communicator-wait phase. The
+	// communicator (SSH) doesn't use this connection at all.
+	if s.conn != nil {
+		s.conn.Close()
+		s.conn = nil
+	}
+
 	return multistep.ActionContinue
 }
 
