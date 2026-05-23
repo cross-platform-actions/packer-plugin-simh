@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,6 +20,9 @@ import (
 
 type stepBootCommand struct {
 	conn net.Conn
+	// tee mirrors everything read from the simulated console to a file so
+	// the operator can `tail -f` it during the build. nil if disabled.
+	tee *os.File
 }
 
 func (s *stepBootCommand) Run(ctx context.Context, state multistep.StateBag) multistep.StepAction {
@@ -72,6 +78,18 @@ func (s *stepBootCommand) Run(ctx context.Context, state multistep.StateBag) mul
 	s.conn = conn
 	ui.Say(fmt.Sprintf("Connected to console at %s", addr))
 
+	// Mirror everything we read from the simulated console to a tee file so
+	// the operator can `tail -f` it during the build (SIMH itself can't
+	// expose the telnet stream to a second client). Failure to open the
+	// file is non-fatal — boot_steps still work without it.
+	teePath := filepath.Join(config.OutputDirectory, config.VMName+".console.tee.log")
+	if f, err := os.OpenFile(teePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644); err == nil {
+		s.tee = f
+		ui.Say(fmt.Sprintf("Mirroring console to %s (tail -f to follow)", teePath))
+	} else {
+		log.Printf("[WARN] could not open console tee file %s: %s", teePath, err)
+	}
+
 	// Populate template data.
 	td := populateTemplateData(config, state)
 	config.ctx.Data = &td
@@ -112,7 +130,7 @@ func (s *stepBootCommand) Run(ctx context.Context, state multistep.StateBag) mul
 		// Wait for expect pattern.
 		if renderedExpect != "" {
 			if err := waitForExpect(ctx, conn, &consoleBuf, renderedExpect,
-				config.BootStepTimeout, ui); err != nil {
+				config.BootStepTimeout, ui, s.tee); err != nil {
 				state.Put("error", err)
 				ui.Error(err.Error())
 				return multistep.ActionHalt
@@ -168,12 +186,17 @@ func (s *stepBootCommand) Cleanup(state multistep.StateBag) {
 		_ = s.conn.Close()
 		s.conn = nil
 	}
+	if s.tee != nil {
+		s.tee.Close()
+		s.tee = nil
+	}
 }
 
 // waitForExpect reads from conn and accumulates into buf until the expect
-// substring is found or the timeout expires.
+// substring is found or the timeout expires. If tee is non-nil every byte
+// (after telnet-IAC stripping) is also mirrored to it.
 func waitForExpect(ctx context.Context, conn net.Conn, buf *bytes.Buffer,
-	expect string, timeout time.Duration, ui packer.Ui) error {
+	expect string, timeout time.Duration, ui packer.Ui, tee io.Writer) error {
 
 	deadline := time.Now().Add(timeout)
 	readBuf := make([]byte, 4096)
@@ -212,6 +235,11 @@ func waitForExpect(ctx context.Context, conn net.Conn, buf *bytes.Buffer,
 			// Strip telnet IAC sequences.
 			cleaned := stripTelnetIAC(readBuf[:n])
 			buf.Write(cleaned)
+			if tee != nil {
+				// Best-effort: ignore write errors so the tee file going
+				// away never breaks the build.
+				_, _ = tee.Write(cleaned)
+			}
 		}
 
 		if err != nil {
