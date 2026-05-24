@@ -23,6 +23,8 @@ type stepBootCommand struct {
 	// tee mirrors everything read from the simulated console to a file so
 	// the operator can `tail -f` it during the build. nil if disabled.
 	tee *os.File
+	// drainStop signals the post-boot_steps drain goroutine to exit.
+	drainStop chan struct{}
 }
 
 func (s *stepBootCommand) Run(ctx context.Context, state multistep.StateBag) multistep.StepAction {
@@ -169,19 +171,84 @@ func (s *stepBootCommand) Run(ctx context.Context, state multistep.StateBag) mul
 
 	ui.Say("Boot steps completed successfully.")
 
-	// Release the console connection now that boot_steps are finished. SIMH's
-	// telnet listener stays bound, so a follow-up tool (or the user) can
-	// connect for diagnostics during the communicator-wait phase. The
-	// communicator (SSH) doesn't use this connection at all.
-	if s.conn != nil {
-		s.conn.Close()
-		s.conn = nil
+	// Hand the telnet console off to a draining goroutine that mirrors
+	// everything the simulated console emits to the tee file for the rest
+	// of the build. SIMH only accepts one telnet client at a time, so the
+	// operator can't connect a second telnet, but `tail -f` of the tee
+	// file is just as good for watching post-reboot firmware/NetBSD output
+	// (which is where most "stuck after boot_steps" problems show up).
+	//
+	// post_boot_commands such as RESET -p ALL close the existing telnet
+	// client connection, so the goroutine also has to reconnect.
+	s.drainStop = make(chan struct{})
+	if s.tee != nil {
+		go drainToTee(s.conn, s.tee, addr, s.drainStop)
 	}
+	// Ownership of conn passes to drainToTee; clear our copy so Cleanup
+	// doesn't double-close it.
+	s.conn = nil
 
 	return multistep.ActionContinue
 }
 
+// drainToTee keeps reading bytes from the simulated console (after IAC
+// stripping) and writing them to the tee file until stop is closed. If
+// the connection drops (e.g. SIMH's RESET -p ALL closes it), the goroutine
+// dials a fresh telnet connection to the same address and resumes. All
+// errors are swallowed: losing the tee is never a reason to fail a build.
+func drainToTee(initial net.Conn, tee io.Writer, addr string, stop <-chan struct{}) {
+	conn := initial
+	defer func() {
+		if conn != nil {
+			conn.Close()
+		}
+	}()
+
+	readBuf := make([]byte, 4096)
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+
+		if conn == nil {
+			// Reconnect with a short deadline; if it fails, back off and
+			// try again until stop is closed.
+			c, err := net.DialTimeout("tcp", addr, 2*time.Second)
+			if err != nil {
+				select {
+				case <-stop:
+					return
+				case <-time.After(2 * time.Second):
+				}
+				continue
+			}
+			conn = c
+		}
+
+		// Cap read with a deadline so we periodically re-check stop.
+		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, err := conn.Read(readBuf)
+		if n > 0 {
+			cleaned := stripTelnetIAC(readBuf[:n])
+			_, _ = tee.Write(cleaned)
+		}
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
+			conn.Close()
+			conn = nil
+		}
+	}
+}
+
 func (s *stepBootCommand) Cleanup(state multistep.StateBag) {
+	if s.drainStop != nil {
+		close(s.drainStop)
+		s.drainStop = nil
+	}
 	if s.conn != nil {
 		_ = s.conn.Close()
 		s.conn = nil
