@@ -2,7 +2,7 @@ package simh
 
 import (
 	"fmt"
-	"net"
+	"io"
 	"time"
 	"unicode/utf8"
 
@@ -10,9 +10,11 @@ import (
 )
 
 // telnetDriver implements the bootcommand.BCDriver interface, sending
-// keystrokes to the simulated console over a telnet connection.
+// keystrokes to the simulated console. It writes through an io.Writer (the
+// consoleReader) rather than holding a net.Conn directly, so keystrokes always
+// reach the live connection even after the reader transparently reconnects.
 type telnetDriver struct {
-	conn     net.Conn
+	w        io.Writer
 	interval time.Duration
 	ctrlHeld bool
 	altHeld  bool
@@ -52,7 +54,7 @@ func (d *telnetDriver) SendKey(key rune, action bootcommand.KeyAction) error {
 		utf8.EncodeRune(buf, key)
 	}
 
-	if _, err := d.conn.Write(buf); err != nil {
+	if _, err := d.w.Write(buf); err != nil {
 		return fmt.Errorf("error sending key to console: %s", err)
 	}
 
@@ -163,7 +165,7 @@ func (d *telnetDriver) SendSpecial(special string, action bootcommand.KeyAction)
 		return nil
 	}
 
-	if _, err := d.conn.Write(seq); err != nil {
+	if _, err := d.w.Write(seq); err != nil {
 		return fmt.Errorf("error sending special key to console: %s", err)
 	}
 

@@ -38,7 +38,7 @@ func TestTelnetDriver_SendKey(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	defer func() { _ = server.Close() }()
 
-	driver := &telnetDriver{conn: client}
+	driver := &telnetDriver{w: client}
 
 	err := driver.SendKey('A', bootcommand.KeyPress)
 	if err != nil {
@@ -61,7 +61,7 @@ func TestTelnetDriver_SendKeyCtrl(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	defer func() { _ = server.Close() }()
 
-	driver := &telnetDriver{conn: client, ctrlHeld: true}
+	driver := &telnetDriver{w: client, ctrlHeld: true}
 
 	err := driver.SendKey('c', bootcommand.KeyPress)
 	if err != nil {
@@ -85,7 +85,7 @@ func TestTelnetDriver_SendKeyAlt(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	defer func() { _ = server.Close() }()
 
-	driver := &telnetDriver{conn: client, altHeld: true}
+	driver := &telnetDriver{w: client, altHeld: true}
 
 	err := driver.SendKey('x', bootcommand.KeyPress)
 	if err != nil {
@@ -109,7 +109,7 @@ func TestTelnetDriver_SendSpecial_Enter(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	defer func() { _ = server.Close() }()
 
-	driver := &telnetDriver{conn: client}
+	driver := &telnetDriver{w: client}
 
 	err := driver.SendSpecial("enter", bootcommand.KeyPress)
 	if err != nil {
@@ -144,7 +144,7 @@ func TestTelnetDriver_SendSpecial_ArrowKeys(t *testing.T) {
 			defer func() { _ = client.Close() }()
 			defer func() { _ = server.Close() }()
 
-			driver := &telnetDriver{conn: client}
+			driver := &telnetDriver{w: client}
 			err := driver.SendSpecial(tt.key, bootcommand.KeyPress)
 			if err != nil {
 				t.Fatal(err)
@@ -174,7 +174,7 @@ func TestTelnetDriver_SendKey_KeyOnOff_NoOp(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	defer func() { _ = server.Close() }()
 
-	driver := &telnetDriver{conn: client}
+	driver := &telnetDriver{w: client}
 
 	// KeyOn and KeyOff should be no-ops.
 	if err := driver.SendKey('a', bootcommand.KeyOn); err != nil {
@@ -198,7 +198,7 @@ func TestTelnetDriver_ModifierTracking(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	defer func() { _ = server.Close() }()
 
-	driver := &telnetDriver{conn: client}
+	driver := &telnetDriver{w: client}
 
 	// Enable Ctrl.
 	_ = driver.SendSpecial("leftCtrl", bootcommand.KeyOn)
@@ -230,7 +230,7 @@ func TestTelnetDriver_UnsupportedModifiers(t *testing.T) {
 	defer func() { _ = client.Close() }()
 	defer func() { _ = server.Close() }()
 
-	driver := &telnetDriver{conn: client}
+	driver := &telnetDriver{w: client}
 
 	unsupported := []string{"rightCtrl", "leftShift", "rightShift", "leftSuper", "rightSuper", "menu"}
 	for _, mod := range unsupported {
@@ -283,7 +283,10 @@ func TestStripTelnetIAC(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := stripTelnetIAC(tt.input)
+			result, leftover := stripTelnetIAC(tt.input)
+			if len(leftover) != 0 {
+				t.Errorf("expected no leftover for complete input, got %v", leftover)
+			}
 			if len(result) != len(tt.expected) {
 				t.Errorf("expected %d bytes, got %d", len(tt.expected), len(result))
 				return
@@ -294,5 +297,45 @@ func TestStripTelnetIAC(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestStripTelnetIAC_SplitAcrossReads verifies that an IAC sequence split
+// across read boundaries is not corrupted: the trailing partial bytes are
+// returned as leftover to be prepended to the next chunk.
+func TestStripTelnetIAC_SplitAcrossReads(t *testing.T) {
+	// A 3-byte IAC WILL <opt> sequence arriving as two chunks: the first
+	// ends with the bare IAC byte, the second carries WILL <opt> then data.
+	c1, lo1 := stripTelnetIAC([]byte{'H', 'i', 0xFF})
+	if string(c1) != "Hi" {
+		t.Errorf("chunk1 cleaned: expected %q, got %q", "Hi", c1)
+	}
+	if len(lo1) != 1 || lo1[0] != 0xFF {
+		t.Errorf("chunk1 leftover: expected [0xFF], got %v", lo1)
+	}
+
+	// Caller prepends leftover to the next chunk.
+	c2, lo2 := stripTelnetIAC(append(append([]byte(nil), lo1...), 0xFB, 0x01, 'O', 'K'))
+	if len(lo2) != 0 {
+		t.Errorf("chunk2 leftover: expected none, got %v", lo2)
+	}
+	if string(c2) != "OK" {
+		t.Errorf("chunk2 cleaned: expected %q, got %q", "OK", c2)
+	}
+
+	// Split in the middle of the 3-byte sequence (after IAC WILL, before opt).
+	c3, lo3 := stripTelnetIAC([]byte{'X', 0xFF, 0xFB})
+	if string(c3) != "X" {
+		t.Errorf("chunk3 cleaned: expected %q, got %q", "X", c3)
+	}
+	if len(lo3) != 2 || lo3[0] != 0xFF || lo3[1] != 0xFB {
+		t.Errorf("chunk3 leftover: expected [0xFF 0xFB], got %v", lo3)
+	}
+	c4, lo4 := stripTelnetIAC(append(append([]byte(nil), lo3...), 0x01, 'Y'))
+	if len(lo4) != 0 {
+		t.Errorf("chunk4 leftover: expected none, got %v", lo4)
+	}
+	if string(c4) != "Y" {
+		t.Errorf("chunk4 cleaned: expected %q, got %q", "Y", c4)
 	}
 }
