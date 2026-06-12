@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/hashicorp/packer-plugin-sdk/communicator"
@@ -70,6 +69,24 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 	state.Put("driver", driver)
 	state.Put("hook", hook)
 	state.Put("ui", ui)
+
+	// Backstop: make sure neither the SIMH child process nor the console
+	// reader goroutine can outlive the build. The multistep runner replaces
+	// step Cleanups with a no-op when running with -on-error=abort (the SDK's
+	// abortStep) and on some cancellation paths, so step Cleanups may never
+	// fire. Both Stop calls are idempotent — if a step already stopped them
+	// (or SIMH exited on its own), they return immediately — so calling them
+	// unconditionally here is harmless.
+	defer func() {
+		if raw, ok := state.GetOk("console_reader"); ok {
+			if reader, ok := raw.(*consoleReader); ok {
+				reader.Stop()
+			}
+		}
+		if err := driver.Stop(); err != nil {
+			log.Printf("[WARN] Error stopping SIMH during builder cleanup: %s", err)
+		}
+	}()
 
 	// Build the step sequence.
 	steps := []multistep.Step{}
@@ -187,11 +204,12 @@ func (b *Builder) Run(ctx context.Context, ui packer.Ui, hook packer.Hook) (pack
 }
 
 // collectArtifactFiles walks the output directory and returns all regular
-// files, excluding the command file and console log.
+// files, excluding the command file, console log, and console tee log.
 func collectArtifactFiles(outputDir, vmName string) ([]string, error) {
 	excludeNames := map[string]bool{
-		vmName + ".simh":        true,
-		vmName + ".console.log": true,
+		vmName + ".simh":            true,
+		vmName + ".console.log":     true,
+		vmName + ".console.tee.log": true,
 	}
 
 	var files []string
@@ -202,17 +220,15 @@ func collectArtifactFiles(outputDir, vmName string) ([]string, error) {
 		if info.IsDir() {
 			return nil
 		}
-		// Get relative name from output dir for exclusion check.
+		// Get relative name from output dir for exclusion check. excludeNames
+		// keys are bare top-level filenames, so this only matches files
+		// directly in outputDir — a nested file's rel contains a separator and
+		// cannot match.
 		rel, err := filepath.Rel(outputDir, path)
 		if err != nil {
 			return err
 		}
 		if excludeNames[rel] {
-			return nil
-		}
-		// Exclude files with path separators in the excluded name check
-		// (only top-level files are excluded).
-		if !strings.Contains(rel, string(filepath.Separator)) && excludeNames[rel] {
 			return nil
 		}
 		files = append(files, path)

@@ -39,12 +39,18 @@ func (s *stepShutdown) Run(ctx context.Context, state multistep.StateBag) multis
 	select {
 	case <-ctx.Done():
 		ui.Say("Build cancelled. Stopping SIMH...")
-		driver.Stop()
+		if err := driver.Stop(); err != nil {
+			log.Printf("[WARN] Error stopping SIMH after cancellation: %s", err)
+			ui.Error(fmt.Sprintf("Error stopping SIMH: %s", err))
+		}
 		return multistep.ActionHalt
 	default:
 		// Timeout.
 		ui.Error("SIMH did not exit within timeout; process killed")
-		driver.Stop()
+		if err := driver.Stop(); err != nil {
+			log.Printf("[WARN] Error stopping SIMH after shutdown timeout: %s", err)
+			ui.Error(fmt.Sprintf("Error stopping SIMH: %s", err))
+		}
 		err := fmt.Errorf("SIMH did not exit within %s timeout", config.ShutdownTimeout)
 		state.Put("error", err)
 		return multistep.ActionHalt
