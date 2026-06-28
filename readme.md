@@ -34,13 +34,13 @@ Key features:
 ### From GitHub Releases
 
 ```bash
-packer plugins install github.com/jacob-carlborg/simh
+packer plugins install github.com/cross-platform-actions/simh
 ```
 
 ### Manual Installation
 
 Download the appropriate binary from the
-[releases page](https://github.com/jacob-carlborg/packer-plugin-simh/releases)
+[releases page](https://github.com/cross-platform-actions/packer-plugin-simh/releases)
 and place it in the Packer plugins directory:
 
 ```bash

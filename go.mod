@@ -1,4 +1,4 @@
-module github.com/jacob-carlborg/packer-plugin-simh
+module github.com/cross-platform-actions/packer-plugin-simh
 
 go 1.24.0
 

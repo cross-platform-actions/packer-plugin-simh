@@ -6,8 +6,8 @@ import (
 
 	"github.com/hashicorp/packer-plugin-sdk/plugin"
 
-	simh "github.com/jacob-carlborg/packer-plugin-simh/builder/simh"
-	"github.com/jacob-carlborg/packer-plugin-simh/version"
+	simh "github.com/cross-platform-actions/packer-plugin-simh/builder/simh"
+	"github.com/cross-platform-actions/packer-plugin-simh/version"
 )
 
 func main() {

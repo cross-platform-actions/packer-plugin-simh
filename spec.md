@@ -28,7 +28,7 @@ architecture.
 
 | Item | Value |
 |------|-------|
-| Go module | `github.com/jacob-carlborg/packer-plugin-simh` |
+| Go module | `github.com/cross-platform-actions/packer-plugin-simh` |
 | Plugin binary | `packer-plugin-simh` |
 | Builder name (HCL `type`) | `simh` |
 | Builder ID | `simh.simh` |
@@ -1524,7 +1524,7 @@ Add `//go:generate` directives in `config.go`:
 ### Installation
 
 ```bash
-packer plugins install github.com/jacob-carlborg/simh
+packer plugins install github.com/cross-platform-actions/simh
 ```
 
 Or manually place the binary in the Packer plugins directory following the

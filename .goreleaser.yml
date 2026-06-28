@@ -14,7 +14,7 @@ builds:
     flags:
       - -trimpath
     ldflags:
-      - "-s -w -X github.com/jacob-carlborg/packer-plugin-simh/version.Version={{ .Version }} -X github.com/jacob-carlborg/packer-plugin-simh/version.VersionPrerelease="
+      - "-s -w -X github.com/cross-platform-actions/packer-plugin-simh/version.Version={{ .Version }} -X github.com/cross-platform-actions/packer-plugin-simh/version.VersionPrerelease="
     goos:
       - linux
       - darwin
@@ -53,7 +53,7 @@ signs:
 
 release:
   github:
-    owner: jacob-carlborg
+    owner: cross-platform-actions
     name: packer-plugin-simh
 
 changelog:
