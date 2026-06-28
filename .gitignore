@@ -1,0 +1,10 @@
+# Built plugin binary (produced by goreleaser / `go build`)
+/packer-plugin-simh
+packer-plugin-simh_v*
+
+# goreleaser output
+/dist/
+
+# Go test/coverage artifacts
+*.test
+*.out
